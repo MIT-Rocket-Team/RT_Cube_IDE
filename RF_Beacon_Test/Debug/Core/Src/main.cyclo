@@ -1,0 +1,16 @@
+../Core/Src/main.c:143:6:collectBit	2
+../Core/Src/main.c:164:13:afsk_init	1
+../Core/Src/main.c:172:17:afsk_next_sample	4
+../Core/Src/main.c:202:13:fill_buffer	4
+../Core/Src/main.c:218:6:HAL_DAC_ConvHalfCpltCallbackCh1	1
+../Core/Src/main.c:226:6:HAL_DAC_ConvCpltCallbackCh1	4
+../Core/Src/main.c:250:5:main	2
+../Core/Src/main.c:336:6:SystemClock_Config	4
+../Core/Src/main.c:364:13:MX_ADC_Init	3
+../Core/Src/main.c:393:13:MX_DAC_Init	3
+../Core/Src/main.c:409:13:MX_TIM6_Init	3
+../Core/Src/main.c:428:13:MX_USART1_UART_Init	2
+../Core/Src/main.c:446:13:MX_USB_PCD_Init	2
+../Core/Src/main.c:461:13:MX_DMA_Init	1
+../Core/Src/main.c:473:13:MX_GPIO_Init	1
+../Core/Src/main.c:492:6:Error_Handler	1

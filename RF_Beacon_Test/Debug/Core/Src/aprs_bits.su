@@ -1,0 +1,6 @@
+../Core/Src/aprs_bits.c:26:6:aprs_sendPacket	5400	static
+../Core/Src/aprs_bits.c:69:13:encodeCallsign	48	static
+../Core/Src/aprs_bits.c:100:17:crc_ccitt	32	static
+../Core/Src/aprs_bits.c:118:13:buildAX25Frame	112	static
+../Core/Src/aprs_bits.c:164:15:bitStuff	48	static
+../Core/Src/aprs_bits.c:190:13:nrziEncode	24	static
