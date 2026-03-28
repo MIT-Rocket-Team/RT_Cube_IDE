@@ -22,7 +22,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "aprs_bits.h"
+#include <gps.h>
 #include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,7 +79,44 @@ UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 
-uint8_t radioConfig[] = "AT+DMOSETGROUP=0,144.3900,144.3900,0000,1,0000\r\n";
+static const uint16_t SINE_LUT[256] = {
+    2048, 2092, 2136, 2180, 2224, 2268, 2312, 2356,
+    2399, 2442, 2485, 2528, 2571, 2613, 2654, 2696,
+    2737, 2777, 2818, 2857, 2897, 2935, 2973, 3011,
+    3048, 3084, 3120, 3155, 3190, 3224, 3257, 3289,
+    3321, 3352, 3382, 3411, 3439, 3467, 3494, 3520,
+    3545, 3569, 3592, 3614, 3635, 3656, 3675, 3694,
+    3711, 3727, 3743, 3757, 3770, 3783, 3794, 3804,
+    3813, 3821, 3829, 3834, 3839, 3843, 3846, 3847,
+    3848, 3847, 3846, 3843, 3839, 3834, 3829, 3821,
+    3813, 3804, 3794, 3783, 3770, 3757, 3743, 3727,
+    3711, 3694, 3675, 3656, 3635, 3614, 3592, 3569,
+    3545, 3520, 3494, 3467, 3439, 3411, 3382, 3352,
+    3321, 3289, 3257, 3224, 3190, 3155, 3120, 3084,
+    3048, 3011, 2973, 2935, 2897, 2857, 2818, 2777,
+    2737, 2696, 2654, 2613, 2571, 2528, 2485, 2442,
+    2399, 2356, 2312, 2268, 2224, 2180, 2136, 2092,
+    2048, 2004, 1960, 1916, 1872, 1828, 1784, 1740,
+    1697, 1654, 1611, 1568, 1525, 1483, 1442, 1400,
+    1359, 1319, 1278, 1239, 1199, 1161, 1123, 1085,
+    1048, 1012,  976,  941,  906,  872,  839,  807,
+     775,  744,  714,  685,  657,  629,  602,  576,
+     551,  527,  504,  482,  461,  440,  421,  402,
+     385,  369,  353,  339,  326,  313,  302,  292,
+     283,  275,  267,  262,  257,  253,  250,  249,
+     248,  249,  250,  253,  257,  262,  267,  275,
+     283,  292,  302,  313,  326,  339,  353,  369,
+     385,  402,  421,  440,  461,  482,  504,  527,
+     551,  576,  602,  629,  657,  685,  714,  744,
+     775,  807,  839,  872,  906,  941,  976, 1012,
+    1048, 1085, 1123, 1161, 1199, 1239, 1278, 1319,
+    1359, 1400, 1442, 1483, 1525, 1568, 1611, 1654,
+    1697, 1740, 1784, 1828, 1872, 1916, 1960, 2004,
+};
+
+
+uint8_t aprsFreq[] = "AT+DMOSETGROUP=0,144.3900,144.3900,0000,1,0000\r\n";
+uint8_t mainFreq[] = "AT+DMOSETGROUP=0,147.4500,147.4500,0000,1,0000\r\n";
 uint8_t filterConfig[] = "AT+SETFILTER=0,0,0\r\n";
 
 uint8_t  bitstream[MAX_BITS];
@@ -108,6 +147,65 @@ static void MX_USART3_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+
+void setPowerLow(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    GPIO_InitStruct.Pin = GPIO_PIN_1;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET); // LOW = 0.5W
+}
+
+void setPowerHigh(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    GPIO_InitStruct.Pin = GPIO_PIN_1;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;   // FLOAT
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+}
+
+void setRadio(UART_HandleTypeDef *huart, uint8_t *cmd)
+{
+    HAL_UART_Transmit(huart, cmd, strlen((char *)cmd), 1000);
+    HAL_Delay(200); // give radio time to switch
+}
+
+void gps_to_aprs_position(int32_t lat, int32_t lon, char *out)
+{
+    char lat_hemi = (lat >= 0) ? 'N' : 'S';
+    char lon_hemi = (lon >= 0) ? 'E' : 'W';
+
+    if (lat < 0) lat = -lat;
+    if (lon < 0) lon = -lon;
+
+    int32_t lat_deg = lat / 10000000;
+    int32_t lon_deg = lon / 10000000;
+
+    int32_t lat_rem = lat % 10000000;
+    int32_t lon_rem = lon % 10000000;
+
+    // minutes * 100 (for 2 decimal places)
+    int32_t lat_min = (lat_rem * 60 * 100) / 10000000;
+    int32_t lon_min = (lon_rem * 60 * 100) / 10000000;
+
+    int lat_min_int = lat_min / 100;
+    int lat_min_dec = lat_min % 100;
+
+    int lon_min_int = lon_min / 100;
+    int lon_min_dec = lon_min % 100;
+
+    sprintf(out,
+        "!%02ld%02d.%02d%c/%03ld%02d.%02d%c",
+        lat_deg, lat_min_int, lat_min_dec, lat_hemi,
+        lon_deg, lon_min_int, lon_min_dec, lon_hemi
+    );
+}
 /* =========================================================
  * Bit collector — called by aprs_sendPacket()
  * ========================================================= */
@@ -208,9 +306,36 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac_cb)
             tx_active    = 0;
             drain_cycles = 0;
             /* De-assert PTT */
-            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
         }
     }
+}
+
+void transmit_packet(void)
+{
+    afsk_init(bitstream, bit_len);
+
+    tx_done   = 0;
+    tx_active = 1;
+
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+
+    fill_buffer(audio_buffer, AUDIO_BUFFER_SIZE);
+
+    HAL_Delay(250);
+
+    HAL_TIM_Base_Start(&htim6);
+    HAL_DAC_Start_DMA(
+        &hdac,
+        DAC_CHANNEL_1,
+        (uint32_t *)audio_buffer,
+        AUDIO_BUFFER_SIZE,
+        DAC_ALIGN_12B_R
+    );
+
+    while (tx_active) { }
+
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
 }
 
 /* USER CODE END 0 */
@@ -249,63 +374,113 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-    HAL_UART_Transmit(&huart1, radioConfig, strlen((char *)radioConfig), 1000);
+    HAL_UART_Transmit(&huart1, mainFreq, strlen((char *)mainFreq), 1000);
     HAL_Delay(1000);
     HAL_UART_Transmit(&huart1, filterConfig, strlen((char *)filterConfig), 1000);
     HAL_Delay(1000);
+
+    uint32_t lastAprs = 0;
+    uint32_t lastSecondary = 0;
+
+    typedef enum {
+        FREQ_MAIN,
+        FREQ_APRS
+    } radio_freq_t;
+
+    radio_freq_t currentFreq = FREQ_MAIN;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
     while (1)
     {
-    	GPS_Update(&huart3);
-        /* ---- Build APRS packet ---- */
-        bit_len = 0;
-        aprs_sendPacket(
-            "KR4GAM",
-            "APRS",
-            "WIDE1-1,WIDE2-1",
-            "!4221.39N/07105.71W-Test beacon",
-            collectBit
-        );
+        uint32_t now = HAL_GetTick();
 
-        /* ---- Initialise modem ---- */
-        afsk_init(bitstream, bit_len);
+        // Always keep GPS updated
+        GPS_Update(&huart3);
 
-        /* ---- Reset TX flags ---- */
-        tx_done   = 0;
-        tx_active = 1;
+        // =========================
+        // === APRS (PRIORITY) ===
+        // =========================
+        if (now - lastAprs >= 60000)
+        {
+            lastAprs = now;
 
-        /* Assert PTT — active LOW */
-        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
+            // --- Build packet (STEP 1 goes HERE) ---
+            char msg[30];
+            gps_to_aprs_position(gps_lat, gps_lon, msg);
 
-        /* Pre-fill entire buffer before starting DMA so there's no underrun
-           on the very first half-complete callback */
-        fill_buffer(audio_buffer, AUDIO_BUFFER_SIZE);
+            bit_len = 0;
+            aprs_sendPacket(
+                "KR4GAM",
+                "APRS",
+                "WIDE1-1,WIDE2-1",
+                msg,
+                collectBit
+            );
 
-        HAL_Delay(200);
+            // --- Switch to APRS freq if needed ---
+            if (currentFreq != FREQ_APRS) {
+            	setPowerHigh();
+                setRadio(&huart1, aprsFreq);
+                currentFreq = FREQ_APRS;
+                HAL_Delay(300);
+            }
 
-        /* Start timer first, then DMA */
-        HAL_TIM_Base_Start(&htim6);
-        HAL_DAC_Start_DMA(
-            &hdac,
-            DAC_CHANNEL_1,
-            (uint32_t *)audio_buffer,
-            AUDIO_BUFFER_SIZE,
-            DAC_ALIGN_12B_R
-        );
+            // --- Transmit ---
+            transmit_packet();
 
-        /* Spin until DMA callback clears tx_active */
-        while (tx_active) { /* idle */ }
+            // --- Return to main freq ---
+            if (currentFreq != FREQ_MAIN) {
+            	setPowerLow();
+                setRadio(&huart1, mainFreq);
+                currentFreq = FREQ_MAIN;
+                HAL_Delay(200);
+            }
 
-        /* Wait 60 s before next beacon */
-        HAL_Delay(60000);
+            continue; // skip secondary this loop
+        }
 
+        // =========================
+        // === SECONDARY (5 sec) ===
+        // =========================
+        if (now - lastSecondary >= 5000)
+        {
+            lastSecondary = now;
+
+            // --- Build SAME packet (STEP 1 here too) ---
+            char msg[30];
+
+            gps_to_aprs_position(gps_lat, gps_lon, msg);
+
+            bit_len = 0;
+            aprs_sendPacket(
+                "KR4GAM",
+                "APRS",
+                "WIDE1-1,WIDE2-1",
+                msg,
+                collectBit
+            );
+
+            // --- Ensure we're on main freq ---
+            if (currentFreq != FREQ_MAIN) {
+            	setPowerLow();
+                setRadio(&huart1, mainFreq);
+                currentFreq = FREQ_MAIN;
+                HAL_Delay(200);
+            }
+
+            // --- Transmit ---
+            transmit_packet();
+        }
+
+        HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    }
+  }
   /* USER CODE END 3 */
 }
 
@@ -571,7 +746,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  huart3.Init.BaudRate = 9600;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -623,7 +798,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2|GPIO_PIN_3, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2|GPIO_PIN_3, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PA0 PA1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB2 PB3 */
   GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
