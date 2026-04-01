@@ -190,9 +190,9 @@ void gps_to_aprs_position(int32_t lat, int32_t lon, char *out)
     int32_t lat_rem = lat % 10000000;
     int32_t lon_rem = lon % 10000000;
 
-    // minutes * 100 (for 2 decimal places)
-    int32_t lat_min = (lat_rem * 60 * 100) / 10000000;
-    int32_t lon_min = (lon_rem * 60 * 100) / 10000000;
+    // FIX: use int64_t to prevent overflow
+    int32_t lat_min = (int32_t)(((int64_t)lat_rem * 60 * 100) / 10000000);
+    int32_t lon_min = (int32_t)(((int64_t)lon_rem * 60 * 100) / 10000000);
 
     int lat_min_int = lat_min / 100;
     int lat_min_dec = lat_min % 100;
@@ -374,9 +374,9 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-    HAL_UART_Transmit(&huart1, mainFreq, strlen((char *)mainFreq), 1000);
+    HAL_UART_Transmit(&huart2, mainFreq, strlen((char *)mainFreq), 1000);
     HAL_Delay(1000);
-    HAL_UART_Transmit(&huart1, filterConfig, strlen((char *)filterConfig), 1000);
+    HAL_UART_Transmit(&huart2, filterConfig, strlen((char *)filterConfig), 1000);
     HAL_Delay(1000);
 
     uint32_t lastAprs = 0;
@@ -388,6 +388,8 @@ int main(void)
     } radio_freq_t;
 
     radio_freq_t currentFreq = FREQ_MAIN;
+
+    GPS_Begin(&huart3);
 
   /* USER CODE END 2 */
 
@@ -406,11 +408,16 @@ int main(void)
         // =========================
         if (now - lastAprs >= 60000)
         {
+        	while (tx_active) {
+        	    // wait or yield
+        	}
             lastAprs = now;
 
             // --- Build packet (STEP 1 goes HERE) ---
             char msg[30];
             gps_to_aprs_position(gps_lat, gps_lon, msg);
+
+
 
             bit_len = 0;
             aprs_sendPacket(
@@ -424,18 +431,25 @@ int main(void)
             // --- Switch to APRS freq if needed ---
             if (currentFreq != FREQ_APRS) {
             	setPowerHigh();
-                setRadio(&huart1, aprsFreq);
+                setRadio(&huart2, aprsFreq);
                 currentFreq = FREQ_APRS;
                 HAL_Delay(300);
             }
 
             // --- Transmit ---
             transmit_packet();
+            while (tx_active) {}
+
+            // NEW — let radio fully settle
+            HAL_Delay(150);   // try 150–300 ms
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+
+            HAL_Delay(300);   // let RF chain fully shut down before retuning
 
             // --- Return to main freq ---
             if (currentFreq != FREQ_MAIN) {
             	setPowerLow();
-                setRadio(&huart1, mainFreq);
+                setRadio(&huart2, mainFreq);
                 currentFreq = FREQ_MAIN;
                 HAL_Delay(200);
             }
@@ -446,14 +460,18 @@ int main(void)
         // =========================
         // === SECONDARY (5 sec) ===
         // =========================
-        if (now - lastSecondary >= 5000)
+        if (now - lastSecondary >= 5000 && now - lastAprs >= 5000)
         {
             lastSecondary = now;
+        	while (tx_active) {
+        	    // wait or yield
+        	}
 
             // --- Build SAME packet (STEP 1 here too) ---
             char msg[30];
 
             gps_to_aprs_position(gps_lat, gps_lon, msg);
+            HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 
             bit_len = 0;
             aprs_sendPacket(
@@ -467,13 +485,20 @@ int main(void)
             // --- Ensure we're on main freq ---
             if (currentFreq != FREQ_MAIN) {
             	setPowerLow();
-                setRadio(&huart1, mainFreq);
+                setRadio(&huart2, mainFreq);
                 currentFreq = FREQ_MAIN;
                 HAL_Delay(200);
             }
 
             // --- Transmit ---
             transmit_packet();
+            while (tx_active) {}
+
+            // NEW — let radio fully settle
+            HAL_Delay(150);   // try 150–300 ms
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+
+            HAL_Delay(300);   // let RF chain fully shut down before retuning
         }
 
         HAL_Delay(10);

@@ -6,31 +6,24 @@
  */
 #include "gps.h"
 #include <string.h>
+#include "stm32f0xx_hal.h"
+#include "stdio.h"
+
+extern UART_HandleTypeDef huart1;
+static char msg2[] = "Hello World\r\n";
+char buffer[32];
+static uint16_t idx = 0;
+
 
 // === UBX CONFIG ===
 // 1
 static uint8_t cfg1[] = {
-    0xB5,0x62,0x06,0x8A,0x0C,0x00,0x00,0x01,0x00,0x00,
-    0x01,0x00,0x52,0x40,0x00,0xC2,0x01,0x00,0xF3,0xA5
-};
-
+		0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00, 0x00, 0x01, 0x00, 0x00, 0x07, 0x00, 0x91, 0x20, 0x01, 0x53, 0x48};
 // 2
 static uint8_t cfg2[] = {
-    0xB5,0x62,0x06,0x8A,0x09,0x00,0x00,0x01,0x00,0x00,
-    0x01,0x00,0x74,0x10,0x01,0x20,0xB3
-};
-
-// 3
-static uint8_t cfg3[] = {
-    0xB5,0x62,0x06,0x8A,0x09,0x00,0x00,0x01,0x00,0x00,
-    0x02,0x00,0x74,0x10,0x00,0x20,0xB7
-};
-
-// 4
-static uint8_t cfg4[] = {
-    0xB5,0x62,0x06,0x8A,0x09,0x00,0x00,0x01,0x00,0x00,
-    0x91,0x04,0x91,0x20,0x01,0xE1,0x0A
-};
+	    0xB5,0x62,0x06,0x8A,0x09,0x00,0x00,0x01,0x00,0x00,
+	    0x02,0x00,0x74,0x10,0x00,0x20,0xB7
+	};
 
 // === NAV-PVT STRUCT ===
 typedef struct __attribute__((packed)) {
@@ -73,50 +66,81 @@ static uint8_t validateChecksum(void);
 
 // === BEGIN ===
 void GPS_Begin(UART_HandleTypeDef *huart) {
-    HAL_UART_Transmit(huart, cfg4, sizeof(cfg4), HAL_MAX_DELAY);
-    HAL_UART_Transmit(huart, cfg3, sizeof(cfg3), HAL_MAX_DELAY);
-    HAL_UART_Transmit(huart, cfg2, sizeof(cfg2), HAL_MAX_DELAY);
     HAL_UART_Transmit(huart, cfg1, sizeof(cfg1), HAL_MAX_DELAY);
+    HAL_UART_Transmit(huart, cfg2, sizeof(cfg2), HAL_MAX_DELAY);
 
-    HAL_UART_DeInit(huart);
-
-        huart->Init.BaudRate = 115200;
-
-        if (HAL_UART_Init(huart) != HAL_OK)
-        {
-
-        }
 }
 
 // === UPDATE ===
 void GPS_Update(UART_HandleTypeDef *huart) {
     uint8_t byte;
 
-    while (HAL_UART_Receive(huart, &byte, 1, 0) == HAL_OK) {
+    static uint8_t state = 0;
 
-        if (!headerValid) {
-            if (byte == 0xB5) {
-                if (validateHeader(huart)) {
-                    headerValid = 1;
-                }
+    while (HAL_UART_Receive(huart, &byte, 1, 100) == HAL_OK) {
+
+        switch (state) {
+        case 0:
+            if (byte == 0xB5) state = 1;
+            break;
+
+        case 1:
+            if (byte == 0x62) state = 2;
+            else state = 0;
+            break;
+
+        case 2:
+            if (byte == 0x01) state = 3;
+            else state = 0;
+            break;
+
+        case 3:
+            if (byte == 0x07) state = 4;
+            else state = 0;
+            break;
+
+        case 4:
+            if (byte == 0x5C) state = 5;
+            else state = 0;
+            break;
+
+        case 5:
+            if (byte == 0x00) {
+                state = 6;
+            } else {
+                state = 0;
             }
-        } else {
-            readPacket(huart);
+            break;
 
-            if (validateChecksum()) {
-                memcpy(&pkt, buf + 4, 92);
+        case 6:
+            buf[4 + idx++] = byte;
 
-                gps_height = pkt.height - heightOffset;
-                gps_fixType = pkt.fixType;
+            if (idx >= 94) {
 
-                if (gps_height > gps_maxAlt && gps_fixType == 3) {
-                    gps_maxAlt = gps_height;
+                buf[0] = 0x01;
+                buf[1] = 0x07;
+                buf[2] = 0x5C;
+                buf[3] = 0x00;
+
+                if (validateChecksum()) {
+
+                    memcpy(&pkt, buf + 4, 92);
+
+                    gps_height = pkt.height - heightOffset;
+                    gps_fixType = pkt.fixType;
+
+                    if (gps_height > gps_maxAlt && gps_fixType == 3) {
+                        gps_maxAlt = gps_height;
+                    }
                 }
-            }
 
-            headerValid = 0;
+                idx = 0;
+                state = 0;
+            }
+            break;
         }
     }
+
     gps_lat = pkt.lat;
     gps_lon = pkt.lon;
 }
@@ -125,7 +149,7 @@ void GPS_Update(UART_HandleTypeDef *huart) {
 static uint8_t validateHeader(UART_HandleTypeDef *huart) {
     uint8_t hdr[5];
 
-    if (HAL_UART_Receive(huart, hdr, 5, 10) != HAL_OK)
+    if (HAL_UART_Receive(huart, hdr, 5, 100) != HAL_OK)
         return 0;
 
     return (hdr[0] == 0x62 &&
