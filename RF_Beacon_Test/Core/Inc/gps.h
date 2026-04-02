@@ -15,6 +15,8 @@
 extern int32_t gps_height;
 extern uint8_t gps_fixType;
 extern int32_t gps_maxAlt;
+extern uint8_t numSat;
+extern uint8_t mins;
 
 extern int32_t gps_lat;
 extern int32_t gps_lon;

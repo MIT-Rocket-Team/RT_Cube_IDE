@@ -57,6 +57,9 @@ int32_t gps_maxAlt = 0;
 int32_t gps_lat = 0;
 int32_t gps_lon = 0;
 
+uint8_t numSat = 0;
+uint8_t mins = 0;
+
 static int32_t heightOffset = 0;
 
 // === PRIVATE ===
@@ -123,10 +126,13 @@ void GPS_Update(UART_HandleTypeDef *huart) {
                 buf[3] = 0x00;
 
                 if (validateChecksum()) {
+                	mins++;
 
                     HAL_UART_Transmit(&huart1, (uint8_t*)msg2, strlen(msg2), HAL_MAX_DELAY);
 
                     memcpy(&pkt, buf + 4, 92);
+
+                    numSat = pkt.numSV;
 
                     gps_height = pkt.height - heightOffset;
                     gps_fixType = pkt.fixType;

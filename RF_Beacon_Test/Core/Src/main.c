@@ -207,12 +207,19 @@ void gps_to_aprs_position(int32_t lat, int32_t lon, char *out)
     );
     char temp[30];
     char temp2[30];
+    char temp3[30];
     strcat(out, "-9 ");
     sprintf(temp, "%ld", gps_height);
     strcat(out, temp);
     strcat(out, ",");
     sprintf(temp2, "%ld", gps_maxAlt);
     strcat(out,temp2);
+    strcat(out, ",");
+    sprintf(temp3, "%u", numSat);
+    strcat(out,temp3);
+    strcat(out, ",");
+    sprintf(temp3, "%u", mins);
+    strcat(out,temp3);
 
 
 }
