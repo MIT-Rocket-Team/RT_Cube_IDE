@@ -10,7 +10,7 @@
 #include "stdio.h"
 
 extern UART_HandleTypeDef huart1;
-static char msg2[] = "Hello World\r\n";
+static char msg2[] = "GPS Packet Parsed\r\n";
 char buffer[32];
 static uint16_t idx = 0;
 
@@ -52,7 +52,7 @@ static ubx_nav_pvt_t pkt;
 
 int32_t gps_height = 0;
 uint8_t gps_fixType = 0;
-float gps_maxAlt = 0;
+int32_t gps_maxAlt = 0;
 
 int32_t gps_lat = 0;
 int32_t gps_lon = 0;
@@ -123,6 +123,8 @@ void GPS_Update(UART_HandleTypeDef *huart) {
                 buf[3] = 0x00;
 
                 if (validateChecksum()) {
+
+                    HAL_UART_Transmit(&huart1, (uint8_t*)msg2, strlen(msg2), HAL_MAX_DELAY);
 
                     memcpy(&pkt, buf + 4, 92);
 

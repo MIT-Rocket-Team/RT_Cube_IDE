@@ -205,6 +205,16 @@ void gps_to_aprs_position(int32_t lat, int32_t lon, char *out)
         lat_deg, lat_min_int, lat_min_dec, lat_hemi,
         lon_deg, lon_min_int, lon_min_dec, lon_hemi
     );
+    char temp[30];
+    char temp2[30];
+    strcat(out, "-9 ");
+    sprintf(temp, "%ld", gps_height);
+    strcat(out, temp);
+    strcat(out, ",");
+    sprintf(temp2, "%ld", gps_maxAlt);
+    strcat(out,temp2);
+
+
 }
 /* =========================================================
  * Bit collector — called by aprs_sendPacket()

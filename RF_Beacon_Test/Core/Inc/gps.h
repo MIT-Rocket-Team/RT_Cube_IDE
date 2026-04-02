@@ -14,7 +14,7 @@
 // === PUBLIC DATA ===
 extern int32_t gps_height;
 extern uint8_t gps_fixType;
-extern float gps_maxAlt;
+extern int32_t gps_maxAlt;
 
 extern int32_t gps_lat;
 extern int32_t gps_lon;
